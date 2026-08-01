@@ -9,16 +9,18 @@ from sklearn import preprocessing
 import statsmodels.api as sm
 
 #from .instance import gaussian_instance
-from .MRT_instance import MRT_instance
+from .MRT_instance_older import MRT_instance
 from ..lasso import lasso
 from ..Utils.base import selected_targets, selected_targets_WCLS
 from ..grid_inference import grid_inference
+
+# from selective-inference.selectinf.algorithms.api import lasso
 
 import warnings
 # suppress warnings
 warnings.filterwarnings('ignore')
 
-def test_inf(N=900,
+def test_inf(N=300,
              beta_11=4.4,
              randomizer_scale=1.,
              equicorrelated=False,
@@ -26,7 +28,6 @@ def test_inf(N=900,
 
     while True:
 
-        # inst, const = MRT_instance, lasso.WCLS
         inst, const = MRT_instance, lasso.gaussian
 
         X, Y, beta, A = MRT_instance(N=N, beta_11=beta_11)[:4]
@@ -61,17 +62,12 @@ def test_inf(N=900,
 
             target_spec = selected_targets_WCLS(conv.loglike,
                                                 A,
-                                           conv.observed_soln,
-                                           K = conv.K,
-                                           dispersion= 1)
+                                                conv.observed_soln,
+                                                K = conv.K,
+                                                dispersion= dispersion)
 
             result_exact = conv.inference(target_spec)
 
-            # query_spec = conv.specification
-            # G = grid_inference(query_spec, target_spec)
-            #
-            # pivots = G._pivots(beta_target,
-            #                       alternatives=None)
 
             if CI is False:
                 pvals = result_exact['pvalue']
@@ -88,18 +84,20 @@ def test_inf(N=900,
                 # print("check intervals ", lci, uci)
                 return np.mean(coverage), np.mean(length)
 
-print(test_inf(CI=False))
+#print(test_inf(CI=False))
 
-### Coverage
+## Coverage
 
 # nsim = 500
 # coverage = []
-#
+# length = []
 # for i in tqdm(range(nsim)):
-#     coverage.append(test_inf(CI=True)[0])
-#
+#     coverage.append(test_inf(beta_11=4.4,CI=True)[0])
+#     length.append(test_inf(beta_11=4.4,CI=True)[1])
 #
 # print(np.mean(coverage))
+# print(np.mean(length))
+
 
 ### Plots of Pivots/p-values
 
@@ -126,12 +124,6 @@ print(test_inf(CI=False))
 
 def compare_inf(N=900,
                 beta_11 = 4.4,
-                p=100,
-                signal_fac=1.,
-                trueP = 5,
-                s=5,
-                sigma=2.,
-                rho=0.4,
                 randomizer_scale=1.):
 
     while True:
@@ -140,19 +132,17 @@ def compare_inf(N=900,
 
         X, Y, beta, A = MRT_instance(N=N, beta_11 = beta_11)[:4]
 
-        n1, p = X.shape
-
-        n = int(n1 / 30)
+        n, p = X.shape
 
         sigma_ = np.std(Y)
 
         if n > (2 * p):
-            dispersion = np.linalg.norm(Y - X.dot(np.linalg.pinv(X).dot(Y))) ** 2 / (n1 - p)
+            dispersion = np.linalg.norm(Y - X.dot(np.linalg.pinv(X).dot(Y))) ** 2 / (n - p)
         else:
             dispersion = sigma_ ** 2
 
-        eps = np.random.standard_normal((n1, 2000)) * Y.std()
-        W = 0.7 * np.median(np.abs(X.T.dot(eps)).max(1))
+        eps = np.random.standard_normal((n, 2000)) * Y.std()
+        W = 0.4 * np.median(np.abs(X.T.dot(eps)).max(1))
 
         conv = const(X,
                      Y,
@@ -162,7 +152,7 @@ def compare_inf(N=900,
 
         signs = conv.fit()
         nonzero = signs != 0
-        #print("size of selected set ", nonzero.sum())
+        beta_target = np.linalg.pinv(X[:, nonzero]).dot(X.dot(beta))
 
         #Sel-Inf
         if nonzero.sum() > 0:
@@ -170,15 +160,15 @@ def compare_inf(N=900,
 
             conv.setup_inference(dispersion=dispersion)
 
-            target_spec2 = selected_targets(conv.loglike,
-                                           conv.observed_soln,
-                                           dispersion=dispersion)
+            # target_spec2 = selected_targets(conv.loglike,
+            #                                conv.observed_soln,
+            #                                dispersion=dispersion)
 
             target_spec = selected_targets_WCLS(conv.loglike,
                                                 A,
                                                 conv.observed_soln,
                                                 K = conv.K,
-                                                dispersion= 1)
+                                                dispersion=dispersion)
 
             result_exact = conv.inference(target_spec)
             sel_intervals = np.asarray(result_exact[['lower_confidence', 'upper_confidence']])
@@ -189,13 +179,13 @@ def compare_inf(N=900,
             #print("Sel Inf coverage and length ", np.mean(coverage1), np.mean(length1))
             #print("check selective intervals ", lci, uci)
 
-            # without sandwiched cov
-            result_exact2 = conv.inference(target_spec2)
-            sel_intervals2 = np.asarray(result_exact2[['lower_confidence', 'upper_confidence']])
-            lci2 = sel_intervals2[:, 0]
-            uci2 = sel_intervals2[:, 1]
-            coverage1w = (lci2 < beta_target) * (uci2 > beta_target)
-            length1w = uci2 - lci2
+            # # without sandwiched cov
+            # result_exact2 = conv.inference(target_spec2)
+            # sel_intervals2 = np.asarray(result_exact2[['lower_confidence', 'upper_confidence']])
+            # lci2 = sel_intervals2[:, 0]
+            # uci2 = sel_intervals2[:, 1]
+            # coverage1w = (lci2 < beta_target) * (uci2 > beta_target)
+            # length1w = uci2 - lci2
 
         #Naive
 
@@ -248,7 +238,7 @@ def compare_inf(N=900,
         shuffled_ids = pd.Series(unique_ids).sample(frac=1, random_state=42019).tolist()
 
         # Split the IDs into train and test sets
-        test_size = 0.3
+        test_size = 0.5
         train_size = int((1 - test_size) * len(shuffled_ids))
         train_ids = shuffled_ids[:train_size]
         test_ids = shuffled_ids[train_size:]
@@ -265,14 +255,12 @@ def compare_inf(N=900,
         n_test = X_test.shape[0]
 
         eps1 = np.random.standard_normal((n_train, 2000)) * Y_train.std()
-        eps2 = np.random.standard_normal((n_test, 2000)) * Y_test.std()
-        W_train = 0.7 * np.median(np.abs(X_train.T.dot(eps1)).max(1))
-        W_test = 0.7 * np.median(np.abs(X_test.T.dot(eps2)).max(1))
+        W_train = 0.2 *  n_train/(n_train+ n_test) * np.median(np.abs(X_train.T.dot(eps1)).max(1))
         conv2 = const(X_train,
                       Y_train,
                       W_train,
                       ridge_term=0.,
-                      randomizer_scale=randomizer_scale * np.sqrt(dispersion))
+                      randomizer_scale=0.)
 
         signs2 = conv2.fit()
         nonzero2 = signs2 != 0
@@ -336,7 +324,7 @@ def compare_inf(N=900,
         # print("size of selected set ", nonzero.sum())
         #print("Split coverage and length ", np.mean(coverage3), np.mean(length3))
 
-        return coverage1, coverage1w, coverage2, coverage3, length1, length1w, length2, length3
+        return coverage1, coverage2, coverage3, length1, length2, length3
 
 # print(compare_inf(300))
 
@@ -347,7 +335,7 @@ def compare_inf(N=900,
 # bcoverage1w_1 = []
 # bcoverage2_1 = []
 # bcoverage3_1 = []
-
+#
 # bcoverage1_2 = []
 # bcoverage1w_2 = []
 # bcoverage2_2 = []
@@ -357,73 +345,67 @@ def compare_inf(N=900,
 # bcoverage1w_3 = []
 # bcoverage2_3 = []
 # bcoverage3_3 = []
-
+#
 # blength1_1 = []
 # blength1w_1 = []
 # blength2_1 = []
 # blength3_1 = []
-
+#
 # blength1_2 = []
 # blength1w_2 = []
 # blength2_2 = []
 # blength3_2 = []
-
+#
 # blength1_3 = []
 # blength1w_3 = []
 # blength2_3 = []
 # blength3_3 = []
-
-# for i in range(nsim):
-    # coverage1_1, coverage1w_1, coverage2_1, coverage3_1, length1_1, length1w_1, length2_1, length3_1 = compare_inf(300)
-    # coverage1_2, coverage1w_2, coverage2_2, coverage3_2, length1_2, length1w_2, length2_2, length3_2 = compare_inf(900, 4.4)
-    # coverage1_3, coverage1w_3, coverage2_3, coverage3_3, length1_3, length1w_3, length2_3, length3_3 = compare_inf(3000)
-
-    # bcoverage1_1.append(np.mean(coverage1_1))
-    # bcoverage1w_1.append(np.mean(coverage1w_1))
-    # bcoverage2_1.append(np.mean(coverage2_1))
-    # bcoverage3_1.append(np.mean(coverage3_1))
-
-    # bcoverage1_2.append(np.mean(coverage1_2))
-    # bcoverage1w_2.append(np.mean(coverage1w_2))
-    # bcoverage2_2.append(np.mean(coverage2_2))
-    # bcoverage3_2.append(np.mean(coverage3_2))
-
-    # bcoverage1_3.append(np.mean(coverage1_3))
-    # bcoverage1w_3.append(np.mean(coverage1w_3))
-    # bcoverage2_3.append(np.mean(coverage2_3))
-    # bcoverage3_3.append(np.mean(coverage3_3))
-    #
-    # blength1_1.append(np.mean(length1_1))
-    # blength1w_1.append(np.mean(length1w_1))
-    # blength2_1.append(np.mean(length2_1))
-    # blength3_1.append(np.mean(length3_1))
-
-    # blength1_2.append(np.mean(length1_2))
-    # blength1w_2.append(np.mean(length1w_2))
-    # blength2_2.append(np.mean(length2_2))
-    # blength3_2.append(np.mean(length3_2))
-
-    # blength1_3.append(np.mean(length1_3))
-    # blength1w_3.append(np.mean(length1w_3))
-    # blength2_3.append(np.mean(length2_3))
-    # blength3_3.append(np.mean(length3_3))
-
-
-# Coverage_Data = pd.DataFrame({"Selective Coverage (n=300)": bcoverage1_1, "Selective Coverage (NS) (n=300)": bcoverage1w_1, "Naive Coverage (n=300)": bcoverage2_1, "Data Splitting Coverage (n=300)": bcoverage3_1,
-#                               "Selective Coverage (n=900)": bcoverage1_2, "Selective Coverage (NS) (n=900)": bcoverage1w_2, "Naive Coverage (n=900)": bcoverage2_2, "Data Splitting Coverage (n=900)": bcoverage3_2,
-#                               "Selective Coverage (n=3000)": bcoverage1_3, "Selective Coverage (NS) (n=3000)": bcoverage1w_3, "Naive Coverage (n=3000)": bcoverage2_3, "Data Splitting Coverage (n=3000)": bcoverage3_3
+#
+# for i in tqdm(range(nsim)):
+#     coverage1_1, coverage2_1, coverage3_1, length1_1, length2_1, length3_1 = compare_inf(30,  0.04)
+#     coverage1_2, coverage2_2, coverage3_2, length1_2, length2_2, length3_2 = compare_inf(90, 0.04)
+#     coverage1_3, coverage2_3, coverage3_3, length1_3, length2_3, length3_3 = compare_inf(300,  0.04)
+#
+#     bcoverage1_1.append(np.mean(coverage1_1))
+#     bcoverage2_1.append(np.mean(coverage2_1))
+#     bcoverage3_1.append(np.mean(coverage3_1))
+#
+#     bcoverage1_2.append(np.mean(coverage1_2))
+#     bcoverage2_2.append(np.mean(coverage2_2))
+#     bcoverage3_2.append(np.mean(coverage3_2))
+#
+#     bcoverage1_3.append(np.mean(coverage1_3))
+#     bcoverage2_3.append(np.mean(coverage2_3))
+#     bcoverage3_3.append(np.mean(coverage3_3))
+#
+#     blength1_1.append(np.mean(length1_1))
+#     blength2_1.append(np.mean(length2_1))
+#     blength3_1.append(np.mean(length3_1))
+#
+#     blength1_2.append(np.mean(length1_2))
+#     blength2_2.append(np.mean(length2_2))
+#     blength3_2.append(np.mean(length3_2))
+#
+#     blength1_3.append(np.mean(length1_3))
+#     blength2_3.append(np.mean(length2_3))
+#     blength3_3.append(np.mean(length3_3))
+#
+#
+# Coverage_Data = pd.DataFrame({"Selective Coverage (n=300)": bcoverage1_1,  "Naive Coverage (n=300)": bcoverage2_1, "Data Splitting Coverage (n=300)": bcoverage3_1,
+#                               "Selective Coverage (n=900)": bcoverage1_2, "Naive Coverage (n=900)": bcoverage2_2, "Data Splitting Coverage (n=900)": bcoverage3_2,
+#                               "Selective Coverage (n=3000)": bcoverage1_3, "Naive Coverage (n=3000)": bcoverage2_3, "Data Splitting Coverage (n=3000)": bcoverage3_3
 #                               })
-# Length_Data = pd.DataFrame({"Selective CI Lengths (n=300)": blength1_1, "Selective CI Lengths (NS) (n=300)": blength1w_1, "Naive CI Lengths (n=300)": blength2_1, "Data Splitting CI Lengths (n=300)": blength3_1,
-#                             "Selective CI Lengths (n=900)": blength1_2, "Selective CI Lengths (NS) (n=900)": blength1w_2, "Naive CI Lengths (n=900)": blength2_2, "Data Splitting CI Lengths (n=900)": blength3_2,
-#                             "Selective CI Lengths (n=3000)": blength1_3, "Selective CI Lengths (NS) (n=3000)": blength1w_3, "Naive CI Lengths (n=3000)": blength2_3, "Data Splitting CI Lengths (n=3000)": blength3_3})
+# Length_Data = pd.DataFrame({"Selective CI Lengths (n=300)": blength1_1, "Naive CI Lengths (n=300)": blength2_1, "Data Splitting CI Lengths (n=300)": blength3_1,
+#                             "Selective CI Lengths (n=900)": blength1_2, "Naive CI Lengths (n=900)": blength2_2, "Data Splitting CI Lengths (n=900)": blength3_2,
+#                             "Selective CI Lengths (n=3000)": blength1_3,"Naive CI Lengths (n=3000)": blength2_3, "Data Splitting CI Lengths (n=3000)": blength3_3})
 #
 #
-# print(Coverage_Data[list(Coverage_Data.columns)[1:]].mean())
-# print(Length_Data[list(Length_Data.columns)[1:]].mean())
-#
+# print(Coverage_Data[list(Coverage_Data.columns)].mean())
+# print(Length_Data[list(Length_Data.columns)].mean())
+
 # Coverage_Data.to_csv('Coverage_Data.csv')
 # Length_Data.to_csv('Length_Data.csv')
-
+#
 # print(np.mean(np.asarray(bcoverage1_2)))
 # print(np.mean(np.asarray(bcoverage1w_2)))
 # print(np.mean(np.asarray(bcoverage2_2)))
@@ -435,112 +417,110 @@ def compare_inf(N=900,
 
 
 
-# Simulation vary signal
-#
-# nsim = 500
-#
-# bcoverage1_1 = []
-# bcoverage1w_1 = []
-# bcoverage2_1 = []
-# bcoverage3_1 = []
-#
-# bcoverage1_2 = []
-# bcoverage1w_2 = []
-# bcoverage2_2 = []
-# bcoverage3_2 = []
-#
-# bcoverage1_3 = []
-# bcoverage1w_3 = []
-# bcoverage2_3 = []
-# bcoverage3_3 = []
-#
-# blength1_1 = []
-# blength1w_1 = []
-# blength2_1 = []
-# blength3_1 = []
-#
-# blength1_2 = []
-# blength1w_2 = []
-# blength2_2 = []
-# blength3_2 = []
-#
-# blength1_3 = []
-# blength1w_3 = []
-# blength2_3 = []
-# blength3_3 = []
-#
-# for i in range(nsim):
-#     coverage1_1, coverage1w_1, coverage2_1, coverage3_1, length1_1, length1w_1, length2_1, length3_1 = compare_inf(900, 1.8 )
-#     coverage1_2, coverage1w_2, coverage2_2, coverage3_2, length1_2, length1w_2, length2_2, length3_2 = compare_inf(900, 2.8)
-#     coverage1_3, coverage1w_3, coverage2_3, coverage3_3, length1_3, length1w_3, length2_3, length3_3 = compare_inf(900,  3.8)
-#
-#     bcoverage1_1.append(np.mean(coverage1_1))
-#     bcoverage1w_1.append(np.mean(coverage1w_1))
-#     bcoverage2_1.append(np.mean(coverage2_1))
-#     bcoverage3_1.append(np.mean(coverage3_1))
-#
-#     bcoverage1_2.append(np.mean(coverage1_2))
-#     bcoverage1w_2.append(np.mean(coverage1w_2))
-#     bcoverage2_2.append(np.mean(coverage2_2))
-#     bcoverage3_2.append(np.mean(coverage3_2))
-#
-#     bcoverage1_3.append(np.mean(coverage1_3))
-#     bcoverage1w_3.append(np.mean(coverage1w_3))
-#     bcoverage2_3.append(np.mean(coverage2_3))
-#     bcoverage3_3.append(np.mean(coverage3_3))
-#
-#     blength1_1.append(np.mean(length1_1))
-#     blength1w_1.append(np.mean(length1w_1))
-#     blength2_1.append(np.mean(length2_1))
-#     blength3_1.append(np.mean(length3_1))
-#
-#     blength1_2.append(np.mean(length1_2))
-#     blength1w_2.append(np.mean(length1w_2))
-#     blength2_2.append(np.mean(length2_2))
-#     blength3_2.append(np.mean(length3_2))
-#
-#     blength1_3.append(np.mean(length1_3))
-#     blength1w_3.append(np.mean(length1w_3))
-#     blength2_3.append(np.mean(length2_3))
-#     blength3_3.append(np.mean(length3_3))
-#
-#
-#
-# Coverage_Data_s = pd.DataFrame({"Selective Coverage (1)": bcoverage1_1, "Selective Coverage (NS) (1)": bcoverage1w_1, "Naive Coverage (1)": bcoverage2_1, "Data Splitting Coverage (1)": bcoverage3_1,
-#                               "Selective Coverage (2)": bcoverage1_2, "Selective Coverage (NS) (2)": bcoverage1w_2, "Naive Coverage (2)": bcoverage2_2, "Data Splitting Coverage (2)": bcoverage3_2,
-#                               "Selective Coverage (3)": bcoverage1_3, "Selective Coverage (NS) (3)": bcoverage1w_3, "Naive Coverage (3)": bcoverage2_3, "Data Splitting Coverage (3)": bcoverage3_3
-#                               })
-# Length_Data_s = pd.DataFrame({"Selective CI Lengths (1)": blength1_1, "Selective CI Lengths (NS) (1)": blength1w_1, "Naive CI Lengths (1)": blength2_1, "Data Splitting CI Lengths (1)": blength3_1,
-#                             "Selective CI Lengths (2)": blength1_2, "Selective CI Lengths (NS) (2)": blength1w_2, "Naive CI Lengths (2)": blength2_2, "Data Splitting CI Lengths (2)": blength3_2,
-#                             "Selective CI Lengths (3)": blength1_3, "Selective CI Lengths (NS) (3)": blength1w_3, "Naive CI Lengths (3)": blength2_3, "Data Splitting CI Lengths (3)": blength3_3})
-#
-#
-# print(Coverage_Data_s[list(Coverage_Data_s.columns)].mean())
-# print(Length_Data_s[list(Length_Data_s.columns)].mean())
-#
-# Coverage_Data_s.to_csv('Coverage_Data_s.csv')
-# Length_Data_s.to_csv('Length_Data_s.csv')
+#Simulation vary signal
+
+nsim = 500
+
+bcoverage1_1 = []
+bcoverage1w_1 = []
+bcoverage2_1 = []
+bcoverage3_1 = []
+
+bcoverage1_2 = []
+bcoverage1w_2 = []
+bcoverage2_2 = []
+bcoverage3_2 = []
+
+bcoverage1_3 = []
+bcoverage1w_3 = []
+bcoverage2_3 = []
+bcoverage3_3 = []
+
+blength1_1 = []
+blength1w_1 = []
+blength2_1 = []
+blength3_1 = []
+
+blength1_2 = []
+blength1w_2 = []
+blength2_2 = []
+blength3_2 = []
+
+blength1_3 = []
+blength1w_3 = []
+blength2_3 = []
+blength3_3 = []
+
+for i in tqdm(range(nsim)):
+    coverage1_1, coverage2_1, coverage3_1, length1_1, length2_1, length3_1 = compare_inf(150, 0.00000000000004)
+    coverage1_2,  coverage2_2, coverage3_2, length1_2, length2_2, length3_2 = compare_inf(150,0.00000008 )
+    coverage1_3, coverage2_3, coverage3_3, length1_3, length2_3, length3_3 = compare_inf(150,  2.2)
+
+    bcoverage1_1.append(np.mean(coverage1_1))
+    bcoverage2_1.append(np.mean(coverage2_1))
+    bcoverage3_1.append(np.mean(coverage3_1))
+
+    bcoverage1_2.append(np.mean(coverage1_2))
+    bcoverage2_2.append(np.mean(coverage2_2))
+    bcoverage3_2.append(np.mean(coverage3_2))
+
+    bcoverage1_3.append(np.mean(coverage1_3))
+    bcoverage2_3.append(np.mean(coverage2_3))
+    bcoverage3_3.append(np.mean(coverage3_3))
+
+    blength1_1.append(np.mean(length1_1))
+    blength2_1.append(np.mean(length2_1))
+    blength3_1.append(np.mean(length3_1))
+
+    blength1_2.append(np.mean(length1_2))
+    blength2_2.append(np.mean(length2_2))
+    blength3_2.append(np.mean(length3_2))
+
+    blength1_3.append(np.mean(length1_3))
+    blength2_3.append(np.mean(length2_3))
+    blength3_3.append(np.mean(length3_3))
 
 
+
+Coverage_Data_s = pd.DataFrame({"Selective Coverage (1)": bcoverage1_1,  "Naive Coverage (1)": bcoverage2_1, "Data Splitting Coverage (1)": bcoverage3_1,
+                              "Selective Coverage (2)": bcoverage1_2, "Naive Coverage (2)": bcoverage2_2, "Data Splitting Coverage (2)": bcoverage3_2,
+                              "Selective Coverage (3)": bcoverage1_3, "Naive Coverage (3)": bcoverage2_3, "Data Splitting Coverage (3)": bcoverage3_3
+                              })
+Length_Data_s = pd.DataFrame({"Selective CI Lengths (1)": blength1_1, "Naive CI Lengths (1)": blength2_1, "Data Splitting CI Lengths (1)": blength3_1,
+                            "Selective CI Lengths (2)": blength1_2, "Naive CI Lengths (2)": blength2_2, "Data Splitting CI Lengths (2)": blength3_2,
+                            "Selective CI Lengths (3)": blength1_3,  "Naive CI Lengths (3)": blength2_3, "Data Splitting CI Lengths (3)": blength3_3})
+
+
+print(Coverage_Data_s[list(Coverage_Data_s.columns)].mean())
+print(Length_Data_s[list(Length_Data_s.columns)].mean())
+
+# Coverage_Data_s.to_csv('Coverage_Data_signal.csv')
+# Length_Data_s.to_csv('Length_Data_signal.csv')
+
+Coverage_Data_s.to_csv('Coverage_Data_signal_Lap.csv')
+Length_Data_s.to_csv('Length_Data_signal_Lap.csv')
 
 
 # ON REAL DATA
-
-# X = np.asarray(pd.read_csv(r'~/Documents/Xoutput.csv'))
-
-
-# from sklearn.preprocessing import StandardScaler
-# scaler = StandardScaler()
-# scaler.fit(X)
-# X = scaler.transform(X)
-
-# np.c_[np.ones(15641), X]
-
-# names = np.asarray(pd.read_csv(r'~/Documents/names.csv'))
-# Y = np.asarray(pd.read_csv(r'~/Documents/Youtput.csv'))
-# Y = Y.reshape((15641,))
+#
+# data = pd.read_csv(r'~/Documents/realdata/stepsdata.csv')
+#
+#
+#
+#
+# # np.c_[np.ones(15641), X]
+#
+# names = np.asarray(pd.read_csv(r'~/Documents/realdata/names.csv'))
+#
+# Y = data['Y']
+# X = data.iloc[:,:-2]
 # n, p = X.shape
-
+#
+# # from sklearn.preprocessing import StandardScaler
+# # scaler = StandardScaler()
+# # scaler.fit(X)
+# # X = scaler.transform(X)
+#
 # sigma_ = np.std(Y)
 #
 # if n > (2 * p):
@@ -565,10 +545,17 @@ def compare_inf(N=900,
 # print("potential moderators ", names[nonzero])
 #
 # conv.setup_inference(dispersion=dispersion)
-#
+
 # target_spec = selected_targets(conv.loglike,
 #                                conv.observed_soln,
 #                                dispersion=dispersion)
+
+# target_spec = selected_targets_WCLS(conv.loglike,
+#                                     data,
+#                                     conv.observed_soln,
+#                                     K = conv.K,
+#                                     dispersion= 1)
+
 #
 # result_exact = conv.inference(target_spec)
 #

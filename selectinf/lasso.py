@@ -3,6 +3,7 @@ from __future__ import print_function
 import numpy as np
 
 import regreg.api as rr
+from networkx.algorithms.centrality import dispersion
 
 from scipy.stats import norm
 
@@ -128,8 +129,16 @@ class lasso(gaussian_query):
         initial_scalings = np.fabs(self.observed_soln[active])
         initial_unpenalized = self.observed_soln[self._unpenalized]
 
+
+        # logistic: opt variables are ONLY active penalized coefficients
+        # self.observed_opt_state = initial_scalings
+        # num_opt_var = self.observed_opt_state.shape[0]
+
         self.observed_opt_state = np.concatenate([initial_scalings,
                                                   initial_unpenalized])
+
+        # form linear part
+        num_opt_var = self.observed_opt_state.shape[0]
 
         #Restricted_MLE
         _beta_unpenalized = restricted_estimator(self.loglike,
@@ -142,9 +151,7 @@ class lasso(gaussian_query):
         beta_bar[overall] = _beta_unpenalized
         self._beta_full = beta_bar
 
-        # form linear part
 
-        num_opt_var = self.observed_opt_state.shape[0]
 
         # (\bar{\beta}_{E \cup U}, N_{-E}, c_E, \beta_U, z_{-E})
         # E for active
@@ -161,11 +168,23 @@ class lasso(gaussian_query):
         X, y = self.loglike.data
         n, p = X.shape
 
-        # estimate K
-        R_tilde = (y - np.dot(X, beta_bar)) ** 2 # squared residuals
-
-        self.K =  np.dot(np.dot(X.T, np.diagflat(R_tilde)), X)
-
+        # ── Sandwich "meat" for robust score covariance ──────────────
+        #
+        # K = X^T diag(W^2 * r^2) X
+        #
+        # where W_i = loglike Hessian weight for observation i.
+        # For Gaussian with coef = 1/sigma^2:  W_i = 1/sigma^2,
+        # so K = (1/sigma^4) X^T diag(r^2) X.
+        #
+        # Sanity check: under homoscedastic errors (E[r^2] = sigma^2),
+        # K = (1/sigma^4) * sigma^2 * X^T X = (1/sigma^2) X^T X = Hessian.
+        #
+        # OLD BUG: was X^T diag(r^2) X / sqrt(n) — missing W^2 weighting
+        # and spurious 1/sqrt(n) normalization.
+        linpred_bar = X.dot(beta_bar)
+        W_hess = self.loglike.saturated_loss.hessian(linpred_bar)
+        R_tilde = (y - linpred_bar) ** 2
+        self.K = (X * (W_hess ** 2 * R_tilde)[:, None]).T @ X
 
         # fill in pieces of query
 
@@ -225,6 +244,7 @@ class lasso(gaussian_query):
         #### to be fixed -- set the cov_score here without dispersion
 
         self._unscaled_cov_score = self.K
+                                    # / dispersion)
         # self._unscaled_cov_score = _hessian
 
         self.num_opt_var = num_opt_var
@@ -337,11 +357,11 @@ class lasso(gaussian_query):
         if randomizer_scale is None:
             randomizer_scale = np.sqrt(mean_diag) * 0.5 * np.std(Y, ddof=1)
 
-        # randomizer = randomization.isotropic_gaussian((p,), randomizer_scale)
+        randomizer = randomization.isotropic_gaussian((p,), randomizer_scale)
 
 
-        _hessian = np.dot(X.T, X)
-        randomizer = randomization.gaussian(_hessian)
+        # _hessian = np.dot(X.T, X)
+        # randomizer = randomization.gaussian(_hessian)
 
         return lasso(loglike,
                      np.asarray(feature_weights) / sigma ** 2,
@@ -377,7 +397,7 @@ class lasso(gaussian_query):
             ridge_term = np.sqrt(mean_diag) / (np.sqrt(n - 1) * sigma ** 2)
 
         if randomizer_scale is None:
-            randomizer_scale = np.sqrt(mean_diag) * 0.5 * np.std(Ystacked, ddof=1)
+            randomizer_scale = np.sqrt(mean_diag) * 0.5 * np.std(Y, ddof=1)
 
         randomizer = randomization.isotropic_gaussian((p,), randomizer_scale)
 

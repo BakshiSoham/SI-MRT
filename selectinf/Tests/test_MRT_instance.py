@@ -8,7 +8,7 @@ from sklearn import preprocessing
 import statsmodels.api as sm
 
 #from .instance import gaussian_instance
-from .MRT_instance import MRT_instance
+from .MRT_instance_older import MRT_instance
 from ..lasso import lasso
 from ..Utils.base import selected_targets, selected_targets_WCLS
 from ..exact_reference import exact_grid_inference
@@ -67,7 +67,7 @@ def test_inst(N=900):
         print(np.sqrt(np.diag(robust_covariance)))
 
         bread = result.cov_naive
-        sandwich =  np.dot(np.dot(np.linalg.inv(bread), robust_covariance), np.linalg.inv(bread))
+        sandwich = np.dot(np.dot(np.linalg.inv(bread), robust_covariance), np.linalg.inv(bread))
         print(sandwich)
         print(np.sqrt(np.diag(bread)))
 

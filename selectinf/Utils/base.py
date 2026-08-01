@@ -82,12 +82,81 @@ def selected_targets(loglike,
     regress_target_score[:, features] = cov_target
 
     return TargetSpec(observed_target,
-                      cov_target * dispersion,
+                      cov_target,
                       regress_target_score,
                       alternatives)
 
+
 def selected_targets_WCLS(loglike,
                           MRT,
+                          solution,
+                          K,
+                          features=None,
+                          sign_info={},
+                          dispersion=None,
+                          solve_args={'tol': 1.e-12, 'min_its': 100}):
+    """
+    Target specification for WCLS selective inference.
+
+    Key difference from selected_targets:
+        cov_target comes from GEE robust (sandwich) covariance,
+        which is ALREADY the full variance estimate of the target.
+        It should NOT be multiplied by dispersion.
+
+    The regress_target_score uses the Hessian-based Qinv,
+    which maps score_E → target correctly because the
+    Hessian weights (from loglike coef=1/sigma^2) are
+    already built into Qinv.
+    """
+
+    if features is None:
+        features = solution != 0
+
+    X, y = loglike.data
+    n, p = X.shape
+
+    observed_target = restricted_estimator(loglike, features, solve_args=solve_args)
+    linpred = X[:, features].dot(observed_target)
+
+    # GEE robust covariance — already the full sandwich estimate
+    Xf = X[:, features]
+    yf = MRT['Y']
+    groups = MRT['id']
+
+    model = sm.GEE(yf, Xf, groups=groups, family=sm.families.Gaussian(), cov_struct=sm.cov_struct.Independence())
+    result = model.fit(cov_type='robust')
+    cov_target = result.cov_robust
+
+    Hfeat = _compute_hessian(loglike,
+                             solution,
+                             features)[1]
+
+    # Qfeat = H_{E,E} = (1/sigma^2) X_E^T X_E  (for Gaussian loglike)
+    Qfeat = Hfeat[features]
+    Qinv = np.linalg.inv(Qfeat)
+
+    alternatives = ['twosided'] * features.sum()
+    features_idx = np.arange(p)[features]
+
+    for i in range(len(alternatives)):
+        if features_idx[i] in sign_info.keys():
+            alternatives[i] = sign_info[features_idx[i]]
+
+    # regress_target_score[:, E] = Qinv = sigma^2 (X_E^T X_E)^{-1}
+    # This correctly maps score_E to the target:
+    #   Qinv @ score_E = sigma^2 (X_E^T X_E)^{-1} @ (1/sigma^2) X_E^T r = (X_E^T X_E)^{-1} X_E^T r = beta_hat_E
+    regress_target_score = np.zeros((Qinv.shape[0], p))
+    regress_target_score[:, features] = Qinv
+
+    # FIX: cov_target from GEE is already the full sandwich variance.
+    # Do NOT multiply by dispersion (old code had cov_target * dispersion).
+    return TargetSpec(observed_target,
+                      cov_target,
+                      regress_target_score,
+                      alternatives)
+
+
+def selected_targets_logistic(loglike,
                           solution,
                           K,
                           features=None,
@@ -104,17 +173,6 @@ def selected_targets_WCLS(loglike,
     observed_target = restricted_estimator(loglike, features, solve_args=solve_args)
     linpred = X[:, features].dot(observed_target)
 
-    # GEE
-    Xf = np.array(MRT.iloc[:, 2:-1])
-    Xf = X[:, features]
-    yf = MRT['Y']
-    groups = MRT['id']
-
-    # fit the GEE model
-    model = sm.GEE(yf, Xf, groups=groups, family=sm.families.Gaussian(), cov_struct=sm.cov_struct.Independence())
-    result = model.fit(cov_type='robust')
-    cov_target = result.cov_robust
-
     Hfeat = _compute_hessian(loglike,
                              solution,
                              features)[1]
@@ -125,9 +183,11 @@ def selected_targets_WCLS(loglike,
     _score_linear = -Hfeat
 
     # Kfeat = K_{E,E}
+    # Kfeat = K
     Kfeat = K[:, features]
     Kfeat = Kfeat[features]
 
+    # cov_target = np.linalg.inv(Qfeat)
     # cov_target = Qinv @ Kfeat @ Qinv
     alternatives = ['twosided'] * features.sum()
     features_idx = np.arange(p)[features]
@@ -142,16 +202,20 @@ def selected_targets_WCLS(loglike,
                                 loglike,
                                 observed_target.shape[0])
 
+    # if n > (2 * p):
+    #     dispersion = np.linalg.norm(Y - X.dot(np.linalg.pinv(X).dot(Y))) ** 2 / (n - p)
+    # else:
+    #     dispersion = sigma_ ** 2
+
     regress_target_score = np.zeros((Qinv.shape[0], p))
     regress_target_score[:, features] = Qinv
-
-
 
 
     return TargetSpec(observed_target,
                       cov_target * dispersion,
                       regress_target_score,
                       alternatives)
+
 
 
 def _compute_hessian(loglike,

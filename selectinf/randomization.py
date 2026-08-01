@@ -141,7 +141,7 @@ class randomization(rr.smooth_atom):
             Positive definite covariance matrix. Non-negative definite
             will raise an error.
         """
-        precision = np.linalg.inv(covariance)
+        precision = np.linalg.pinv(covariance)
         sqrt_precision = np.linalg.cholesky(precision)
         _det = np.linalg.det(covariance)
         p = covariance.shape[0]

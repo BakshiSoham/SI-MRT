@@ -158,8 +158,8 @@ class gaussian_query(object):
         cond_mean = regress_opt.dot(self.observed_score_state + observed_subgrad)
 
         M1 = prod_score_prec_unnorm * dispersion
-        M2 = M1.dot(cov_rand).dot(M1.T)
-        # M2 = M1.dot(self._unscaled_cov_score)
+        # M2 = M1.dot(cov_rand).dot(M1.T)
+        M2 = M1.dot(self._unscaled_cov_score)
         M3 = M1.dot(opt_linear.dot(cond_cov).dot(opt_linear.T)).dot(M1.T)
 
         self.M1 = M1
