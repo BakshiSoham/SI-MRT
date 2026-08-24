@@ -55,7 +55,6 @@ python3.11 -m venv .venv && source .venv/bin/activate    # or conda
 pip install git+https://github.com/regreg/regreg.git
 
 pip install -r requirements.txt
-pip install -e .                                          # `selectinf` in editable mode
 ```
 
 Alternatively, conda-forge carries a regreg build:
@@ -63,6 +62,14 @@ Alternatively, conda-forge carries a regreg build:
 
 Everything else is standard: `numpy`/`scipy` do the heavy lifting and
 `statsmodels` supplies the GEE sandwich estimator.
+
+`selectinf` is pure Python and needs no build/install step: run everything
+from the repository root (or add the root to `PYTHONPATH`) so that
+`import selectinf` resolves. There is no `pip install -e .` here — `setup.py`
+is vestigial, inherited from an upstream package that builds Cython/C
+extensions this repository doesn't include, and will fail if you try to run
+it (`import versioneer` / `cythexts` / `setup_helpers`, none of which are
+vendored here).
 
 ### R dependency
 
@@ -101,14 +108,17 @@ selectinf/                  the inference package
     ├── MRT_instance_older.py     superseded DGP, kept for reference
     ├── instance.py               generic Gaussian design instances
     ├── output_simulations.ipynb  ← all simulations, figures and tables
-    ├── ActivityStepsData.ipynb   exploratory VALENTINE data work
     ├── test_MRT_instance.py      script-style driver for the MRT simulation
     ├── test_exact_reference.py   script-style driver for the pivot
     └── test_lasso.py             script-style driver for the randomized lasso
-
-realdata/                   VALENTINE micro-randomized trial data
-data_results/               archived coverage / length tables
 ```
+
+This repository does **not** include the VALENTINE trial data or any
+notebooks/files derived from it — those data are not publicly shareable (see
+[VALENTINE data application](#valentine-data-application), below). A prior,
+private version of this repository had a `realdata/` directory and a data
+exploration notebook; both were removed from this repo's history entirely
+(not just deleted in a later commit) before it was made public.
 
 **On the `tests/` directory.** Despite the name and the `test_*.py` filenames,
 these are simulation drivers, not a `pytest` suite — they execute long
@@ -230,12 +240,23 @@ count as the response, time-varying context features as candidate moderators.
 Three moderator sets are analyzed: main effects (25 candidates), phase
 interactions (58), and extended interactions (94).
 
-The notebook reads `realdata/AW_df.csv` relative to the repository root. Point
-it elsewhere with an environment variable:
+**The VALENTINE trial data are not included in this repository and cannot be
+made public.** They were collected and analyzed under a University of
+Michigan IRB; access requires a data-use agreement with the study PI. If you
+have obtained the data this way, the notebook reads `realdata/AW_df.csv`
+relative to the repository root (create that directory yourself — it isn't
+tracked here). Point it elsewhere with an environment variable:
 
 ```bash
 export VALENTINE_CSV=/path/to/AW_df.csv
 ```
+
+Without access to the restricted data, the VALENTINE-application cells in the
+notebook won't run, but everything else will: `selectinf/tests/MRT_instance.py`
+generates synthetic data matching the same design (see [The
+data-generating process](#the-data-generating-process), above), so the
+selection and selective-inference steps of the pipeline can still be exercised
+end to end on simulated data.
 
 ---
 

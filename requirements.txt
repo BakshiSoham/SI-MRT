@@ -1,0 +1,9 @@
+numpy
+scipy
+pandas
+matplotlib
+networkx
+scikit-learn
+statsmodels
+tqdm
+rpy2
